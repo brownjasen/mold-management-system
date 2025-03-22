@@ -214,154 +214,111 @@
 </template>
 
 <script>
+import materialAPI from '@/api/material';
+import { ElMessage } from 'element-plus';
+import { ref, computed, onMounted } from 'vue';
+
 export default {
-  data() {
-    return {
-      // 辅料列表
-      materialsList: [
-        {
-          id: '1',
-          name: '阀针',
-          specification: 'S-25',
-          stock: 100,
-          safeStock: 50,
-          unit: '件',
-          supplier: '上海精密器件有限公司',
-          lastUpdate: '2023-09-15 10:30'
-        },
-        {
-          id: '2',
-          name: '弹簧',
-          specification: 'D-30',
-          stock: 30,
-          safeStock: 40,
-          unit: '件',
-          supplier: '上海弹簧制造厂',
-          lastUpdate: '2023-09-14 16:45'
-        },
-        {
-          id: '3',
-          name: '导向柱',
-          specification: 'Z-40',
-          stock: 60,
-          safeStock: 30,
-          unit: '根',
-          supplier: '精密模具配件有限公司',
-          lastUpdate: '2023-09-13 14:20'
-        },
-        {
-          id: '4',
-          name: '顶针',
-          specification: 'T-15',
-          stock: 0,
-          safeStock: 20,
-          unit: '件',
-          supplier: '华南模具配件厂',
-          lastUpdate: '2023-09-12 09:15'
-        }
-      ],
+  setup() {
+    const materialsList = ref([]);
+    const filteredMaterials = ref([]);
+    const searchQuery = ref('');
+    const loading = ref(false);
 
-      // 模具列表（用于出库选择）
-      moldList: [
-        { id: '1', moldCode: 'SC25-01' },
-        { id: '2', moldCode: 'SC25-02' }
-      ],
+    // 对话框控制
+    const addMaterialVisible = ref(false);
+    const stockInVisible = ref(false);
+    const stockOutVisible = ref(false);
 
-      // 搜索相关
-      searchQuery: '',
-      filteredMaterials: [],
+    // 模具列表（用于出库选择）
+    const moldList = ref([]);
 
-      // 对话框控制
-      addMaterialVisible: false,
-      stockInVisible: false,
-      stockOutVisible: false,
+    // 当前操作的辅料
+    const currentMaterial = ref({});
 
-      // 表单数据
-      newMaterial: {
-        name: '',
-        specification: '',
-        stock: 0,
-        safeStock: 0,
-        unit: '件',
-        supplier: ''
-      },
+    // 统计数据（计算属性）
+    const totalMaterials = computed(() => materialsList.value.length);
+    const lowStockCount = computed(() =>
+        materialsList.value.filter(m => m.stock < m.safeStock && m.stock > 0).length
+    );
+    const stockOutCount = computed(() =>
+        materialsList.value.filter(m => m.stock === 0).length
+    );
 
-      currentMaterial: {},
+    // 表单数据
+    const newMaterial = ref({
+      name: '',
+      specification: '',
+      stock: 0,
+      safeStock: 0,
+      unit: '件',
+      supplier: ''
+    });
 
-      stockInForm: {
-        quantity: 1,
-        batchNo: '',
-        remark: ''
-      },
+    const stockInForm = ref({
+      quantity: 1,
+      batchNo: '',
+      remark: ''
+    });
 
-      stockOutForm: {
-        quantity: 1,
-        moldCode: '',
-        remark: ''
+    const stockOutForm = ref({
+      quantity: 1,
+      moldCode: '',
+      remark: ''
+    });
+
+    // 加载辅料数据
+    const loadMaterials = async () => {
+      loading.value = true;
+      try {
+        const response = await materialAPI.getAllMaterials();
+        materialsList.value = response.data;
+        filteredMaterials.value = [...materialsList.value];
+      } catch (error) {
+        console.error('加载辅料数据失败:', error);
+        ElMessage.error('加载辅料数据失败');
+      } finally {
+        loading.value = false;
       }
-    }
-  },
-  computed: {
-    // 统计数据
-    totalMaterials() {
-      return this.materialsList.length;
-    },
-    lowStockCount() {
-      return this.materialsList.filter(m => m.stock < m.safeStock && m.stock > 0).length;
-    },
-    stockOutCount() {
-      return this.materialsList.filter(m => m.stock === 0).length;
-    },
-    recentTransactions() {
-      // 假设我们有10条最近的交易记录
-      return 10;
-    }
-  },
-  mounted() {
-    this.filteredMaterials = [...this.materialsList];
-  },
-  methods: {
-    // 返回模具列表页
-    goToMoldList() {
-      this.$router.push('/');
-    },
+    };
 
     // 处理搜索
-    handleSearch() {
-      if (!this.searchQuery) {
-        this.filteredMaterials = [...this.materialsList];
+    const handleSearch = () => {
+      if (!searchQuery.value.trim()) {
+        filteredMaterials.value = [...materialsList.value];
         return;
       }
 
-      const query = this.searchQuery.toLowerCase();
-      this.filteredMaterials = this.materialsList.filter(material => {
+      const query = searchQuery.value.toLowerCase();
+      filteredMaterials.value = materialsList.value.filter(material => {
         return material.name.toLowerCase().includes(query) ||
             material.specification.toLowerCase().includes(query);
       });
-    },
+    };
 
     // 清除搜索
-    handleSearchClear() {
-      this.filteredMaterials = [...this.materialsList];
-    },
+    const handleSearchClear = () => {
+      searchQuery.value = '';
+      filteredMaterials.value = [...materialsList.value];
+    };
 
     // 获取库存状态类型
-    getStockStatusType(stock, safeStock) {
+    const getStockStatusType = (stock, safeStock) => {
       if (stock === 0) return 'danger';
       if (stock < safeStock) return 'warning';
       return 'success';
-    },
+    };
 
     // 获取库存状态文本
-    getStockStatusText(stock, safeStock) {
+    const getStockStatusText = (stock, safeStock) => {
       if (stock === 0) return '无库存';
       if (stock < safeStock) return '库存不足';
       return '库存充足';
-    },
+    };
 
     // 显示添加辅料对话框
-    showAddMaterialDialog() {
-      this.newMaterial = {
+    const showAddMaterialDialog = () => {
+      newMaterial.value = {
         name: '',
         specification: '',
         stock: 0,
@@ -369,99 +326,168 @@ export default {
         unit: '件',
         supplier: ''
       };
-      this.addMaterialVisible = true;
-    },
+      addMaterialVisible.value = true;
+    };
 
     // 添加辅料
-    addMaterial() {
-      const material = {
-        id: Date.now().toString(),
-        ...this.newMaterial,
-        lastUpdate: this.formatDateTime(new Date())
-      };
+    const addMaterial = async () => {
+      if (!newMaterial.value.name) {
+        ElMessage.warning('请输入辅料名称');
+        return;
+      }
 
-      this.materialsList.push(material);
-      this.filteredMaterials = [...this.materialsList];
-      this.addMaterialVisible = false;
-    },
+      try {
+        const response = await materialAPI.createMaterial(newMaterial.value);
+        materialsList.value.push(response.data);
+        filteredMaterials.value = [...materialsList.value];
+        addMaterialVisible.value = false;
+        ElMessage.success('辅料添加成功');
+      } catch (error) {
+        console.error('添加辅料失败:', error);
+        ElMessage.error('添加辅料失败');
+      }
+    };
 
     // 显示入库对话框
-    showStockInDialog(material) {
-      this.currentMaterial = {...material};
-      this.stockInForm = {
+    const showStockInDialog = (material) => {
+      currentMaterial.value = {...material};
+      stockInForm.value = {
         quantity: 1,
         batchNo: '',
         remark: ''
       };
-      this.stockInVisible = true;
-    },
+      stockInVisible.value = true;
+    };
 
     // 确认入库
-    confirmStockIn() {
-      // 找到材料并更新库存
-      const material = this.materialsList.find(m => m.id === this.currentMaterial.id);
-      if (material) {
-        material.stock += this.stockInForm.quantity;
-        material.lastUpdate = this.formatDateTime(new Date());
-
-        // 更新过滤后的列表
-        this.filteredMaterials = [...this.materialsList];
+    const confirmStockIn = async () => {
+      if (stockInForm.value.quantity <= 0) {
+        ElMessage.warning('入库数量必须大于0');
+        return;
       }
 
-      this.stockInVisible = false;
-      this.$message.success(`成功入库 ${this.stockInForm.quantity} ${this.currentMaterial.unit} ${this.currentMaterial.name}`);
-    },
+      try {
+        const response = await materialAPI.stockIn(
+            currentMaterial.value.id,
+            stockInForm.value.quantity
+        );
 
-    // 显示出库对话框
-    showStockOutDialog(material) {
-      this.currentMaterial = {...material};
-      this.stockOutForm = {
-        quantity: 1,
-        moldCode: this.moldList[0]?.moldCode || '',
-        remark: ''
-      };
-      this.stockOutVisible = true;
-    },
-
-    // 确认出库
-    confirmStockOut() {
-      // 找到材料并更新库存
-      const material = this.materialsList.find(m => m.id === this.currentMaterial.id);
-      if (material) {
-        if (material.stock < this.stockOutForm.quantity) {
-          this.$message.error('库存不足');
-          return;
+        // 更新本地数据
+        const index = materialsList.value.findIndex(m => m.id === currentMaterial.value.id);
+        if (index !== -1) {
+          materialsList.value[index] = response.data;
+          filteredMaterials.value = [...materialsList.value];
         }
 
-        material.stock -= this.stockOutForm.quantity;
-        material.lastUpdate = this.formatDateTime(new Date());
+        stockInVisible.value = false;
+        ElMessage.success(`成功入库 ${stockInForm.value.quantity} ${currentMaterial.value.unit} ${currentMaterial.value.name}`);
+      } catch (error) {
+        console.error('入库操作失败:', error);
+        ElMessage.error('入库操作失败');
+      }
+    };
 
-        // 更新过滤后的列表
-        this.filteredMaterials = [...this.materialsList];
+    // 显示出库对话框
+    const showStockOutDialog = (material) => {
+      if (material.stock <= 0) {
+        ElMessage.warning('当前无库存，无法出库');
+        return;
       }
 
-      this.stockOutVisible = false;
-      this.$message.success(`成功出库 ${this.stockOutForm.quantity} ${this.currentMaterial.unit} ${this.currentMaterial.name} 用于模具 ${this.stockOutForm.moldCode}`);
-    },
+      currentMaterial.value = {...material};
+      stockOutForm.value = {
+        quantity: 1,
+        moldCode: moldList.value[0]?.moldCode || '',
+        remark: ''
+      };
+      stockOutVisible.value = true;
+    };
 
-    // 显示编辑辅料对话框
-    showEditMaterialDialog(material) {
-      // 暂未实现，可以复用添加对话框
-      this.$message.info('编辑功能待实现');
-    },
+    // 确认出库
+    const confirmStockOut = async () => {
+      if (stockOutForm.value.quantity <= 0) {
+        ElMessage.warning('出库数量必须大于0');
+        return;
+      }
 
-    // 格式化日期时间
-    formatDateTime(date) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
+      if (stockOutForm.value.quantity > currentMaterial.value.stock) {
+        ElMessage.warning('出库数量不能大于库存数量');
+        return;
+      }
 
-      return `${year}-${month}-${day} ${hours}:${minutes}`;
-    }
+      try {
+        const response = await materialAPI.stockOut(
+            currentMaterial.value.id,
+            stockOutForm.value.quantity
+        );
+
+        // 更新本地数据
+        const index = materialsList.value.findIndex(m => m.id === currentMaterial.value.id);
+        if (index !== -1) {
+          materialsList.value[index] = response.data;
+          filteredMaterials.value = [...materialsList.value];
+        }
+
+        stockOutVisible.value = false;
+        ElMessage.success(`成功出库 ${stockOutForm.value.quantity} ${currentMaterial.value.unit} ${currentMaterial.value.name}`);
+      } catch (error) {
+        console.error('出库操作失败:', error);
+        ElMessage.error('出库操作失败');
+      }
+    };
+
+    // 返回模具列表页
+    const goToMoldList = () => {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        window.location.href = '/';
+      }
+    };
+
+    // 生命周期钩子
+    onMounted(() => {
+      loadMaterials();
+
+      // 这里应该调用API获取模具列表，用于出库选择
+      // 暂时使用模拟数据
+      moldList.value = [
+        { id: '1', moldCode: 'SC25-01' },
+        { id: '2', moldCode: 'SC25-02' }
+      ];
+    });
+
+    return {
+      materialsList,
+      filteredMaterials,
+      searchQuery,
+      loading,
+      addMaterialVisible,
+      stockInVisible,
+      stockOutVisible,
+      moldList,
+      currentMaterial,
+      newMaterial,
+      stockInForm,
+      stockOutForm,
+      totalMaterials,
+      lowStockCount,
+      stockOutCount,
+      recentTransactions: 10, // 假设最近有10条交易记录
+      handleSearch,
+      handleSearchClear,
+      getStockStatusType,
+      getStockStatusText,
+      showAddMaterialDialog,
+      addMaterial,
+      showStockInDialog,
+      confirmStockIn,
+      showStockOutDialog,
+      confirmStockOut,
+      goToMoldList
+    };
   }
-}
+};
 </script>
 
 <style scoped>

@@ -1,10 +1,15 @@
 <script setup>
-// 不需要导入MoldListView，路由会自动处理组件加载
+import NetworkStatus from './components/NetworkStatus.vue';
+import AppHeader from './components/AppHeader.vue';
 </script>
 
 <template>
   <div class="app-container">
-    <router-view></router-view>
+    <AppHeader />
+    <div class="content">
+      <router-view></router-view>
+    </div>
+    <NetworkStatus />
   </div>
 </template>
 
@@ -12,9 +17,12 @@
 .app-container {
   max-width: 1200px;
   margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.content {
   padding: 20px;
-  width: 100%; /* 添加这行确保容器占满可用宽度 */
-  box-sizing: border-box; /* 确保padding不会增加元素实际宽度 */
 }
 
 body {

@@ -113,9 +113,9 @@
               <el-table-column prop="required" label="需求数量" width="100"></el-table-column>
               <el-table-column prop="stock" label="库存数量" width="100">
                 <template #default="scope">
-                  <span :class="{ 'low-stock': scope.row.stock < scope.row.safeStock }">
-                    {{ scope.row.stock }}
-                  </span>
+      <span :class="{ 'low-stock': scope.row.stock < scope.row.safeStock, 'out-of-stock': scope.row.stock === 0 }">
+        {{ scope.row.stock }}
+      </span>
                 </template>
               </el-table-column>
               <el-table-column prop="safeStock" label="安全库存" width="100"></el-table-column>
@@ -137,7 +137,21 @@
                   </el-button>
                 </template>
               </el-table-column>
+
+              <!-- 添加空状态模板 -->
+              <template #empty>
+                <el-empty
+                    description="暂无辅料数据"
+                    :image-size="100"
+                >
+                  <template #description>
+                    <p>该模具暂未关联任何辅料</p>
+                  </template>
+                  <el-button type="primary" @click="addMaterial">添加辅料</el-button>
+                </el-empty>
+              </template>
             </el-table>
+
           </div>
         </el-tab-pane>
 
@@ -162,25 +176,41 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="操作">
+              <el-table-column label="操作" min-width="240">
                 <template #default="scope">
-                  <el-button
-                      size="small"
-                      type="primary"
-                      @click="startRepair(scope.row)"
-                      :disabled="scope.row.status !== 'waiting'">
-                    开始返修
-                  </el-button>
-                  <el-button
-                      size="small"
-                      type="success"
-                      @click="completeRepair(scope.row)"
-                      :disabled="scope.row.status !== 'repairing'">
-                    完成返修
-                  </el-button>
+                  <div class="button-group">
+                    <el-button
+                        size="small"
+                        type="primary"
+                        @click="startRepair(scope.row)"
+                        :disabled="scope.row.status !== 'waiting'">
+                      开始返修
+                    </el-button>
+                    <el-button
+                        size="small"
+                        type="success"
+                        @click="completeRepair(scope.row)"
+                        :disabled="scope.row.status !== 'repairing'">
+                      完成返修
+                    </el-button>
+                  </div>
                 </template>
               </el-table-column>
+
+              <!-- 添加空状态模板 -->
+              <template #empty>
+                <el-empty
+                    description="暂无返修记录"
+                    :image-size="100"
+                >
+                  <template #description>
+                    <p>该模具暂无返修记录</p>
+                  </template>
+                  <el-button type="primary" @click="showAddRepairDialog">添加返修记录</el-button>
+                </el-empty>
+              </template>
             </el-table>
+
           </div>
         </el-tab-pane>
       </el-tabs>
@@ -238,107 +268,38 @@
 </template>
 
 <script>
+import moldAPI from '@/api/mold.js';
+import processAPI from '@/api/process.js';
+import repairAPI from '@/api/repair.js';
+import { ElMessage } from 'element-plus';
+
 export default {
   data() {
     return {
       moldId: null,
-      moldCode: '',
-      orderTime: '',
-      startTime: '',
-      endTime: '',
-      completionRate: 0,
-      progressStatus: 'exception',
+      mold: {
+        id: '',
+        moldCode: '',
+        orderTime: '',
+        startTime: '',
+        endTime: '',
+        completionRate: 0,
+        status: ''
+      },
+      // 工序数据
+      frameProcesses: [],
+      mainPartsProcesses: [],
+      auxiliaryMaterials: [],
+      repairRecords: [],
+
       activeTab: 'frame',
+      loading: {
+        mold: false,
+        processes: false,
+        materials: false,
+        repairs: false
+      },
 
-      // 模架工序数据
-      frameProcesses: [
-        {
-          id: 'design',
-          name: '设计图纸',
-          weight: 2,
-          status: 'completed',
-          startTime: '2023-09-03 10:00',
-          endTime: '2023-09-03 17:00'
-        },
-        {
-          id: 'material',
-          name: '模料',
-          weight: 7,
-          status: 'inProgress',
-          startTime: '2023-09-04 09:00',
-          endTime: null
-        },
-        {
-          id: 'rough',
-          name: '粗加工',
-          weight: 15,
-          status: 'notStarted',
-          startTime: null,
-          endTime: null
-        }
-      ],
-
-      // 三大件工序数据
-      mainPartsProcesses: [
-        {
-          id: 'core',
-          name: '模芯',
-          weight: 1.5,
-          status: 'notStarted',
-          startTime: null,
-          endTime: null
-        },
-        {
-          id: 'cavity',
-          name: '模腔',
-          weight: 3,
-          status: 'notStarted',
-          startTime: null,
-          endTime: null
-        },
-        {
-          id: 'mount',
-          name: '安装座',
-          weight: 2,
-          status: 'notStarted',
-          startTime: null,
-          endTime: null
-        }
-      ],
-
-      // 辅料数据
-      auxiliaryMaterials: [
-        {
-          id: '1',
-          name: '阀针',
-          specification: 'S-25',
-          required: 20,
-          stock: 100,
-          safeStock: 50
-        },
-        {
-          id: '2',
-          name: '弹簧',
-          specification: 'D-30',
-          required: 15,
-          stock: 30,
-          safeStock: 40
-        }
-      ],
-
-      // 返修记录数据
-      repairRecords: [
-        {
-          id: '1',
-          repairDate: '2023-09-10',
-          partName: '模腔',
-          reason: '尺寸不符',
-          responsible: '张工',
-          repairHours: 8,
-          cost: 2000,
-          status: 'completed'
-        }
-      ],
       // 返修记录相关
       addRepairVisible: false,
       newRepairRecord: {
@@ -353,37 +314,94 @@ export default {
       }
     }
   },
+  computed: {
+    progressStatus() {
+      if (this.mold.status === 'notStarted') return 'exception';
+      if (this.mold.status === 'inProgress') return 'warning';
+      if (this.mold.status === 'completed') return 'success';
+      return '';
+    }
+  },
   mounted() {
     // 获取路由参数中的ID
-    this.moldId = this.$route ? this.$route.params.id : '1';
+    this.moldId = this.$route.params.id;
+
     // 加载模具数据
     this.loadMoldData();
-    // 计算初始完成率
-    this.updateCompletionRate();
+
+    // 加载工序数据
+    this.loadProcessData('frame');
+    this.loadProcessData('main_parts');
+
+    // 加载返修记录
+    this.loadRepairRecords();
   },
   methods: {
-    // 返回上一页
+    // 返回列表页
     goBack() {
       this.$router.push('/');
     },
+    // 添加辅料方法
+    addMaterial() {
+      // 你可以打开对话框或导航到辅料添加页面
+      this.$message.info('添加辅料功能待实现');
+      // 如果有对话框:
+      // this.addMaterialVisible = true;
+    },
+
 
     // 加载模具数据
-    loadMoldData() {
-      // 这里应该调用API获取数据
-      // 现在使用模拟数据
-      this.moldCode = 'SC25-01';
-      this.orderTime = '2023-09-01 10:00';
-      this.startTime = '2023-09-03 08:00';
-      this.endTime = '';
-      this.completionRate = 15;
-      this.progressStatus = 'warning'; // 黄色表示进行中
+    async loadMoldData() {
+      this.loading.mold = true;
+      try {
+        const response = await moldAPI.getMoldById(this.moldId);
+        this.mold = response.data;
+      } catch (error) {
+        console.error('加载模具数据失败:', error);
+        ElMessage.error('加载模具数据失败');
+      } finally {
+        this.loading.mold = false;
+      }
+    },
+
+    // 加载工序数据
+    async loadProcessData(moduleType) {
+      this.loading.processes = true;
+      try {
+        const response = await processAPI.getProcessesByMoldAndType(this.moldId, moduleType);
+
+        if (moduleType === 'frame') {
+          this.frameProcesses = response.data;
+        } else if (moduleType === 'main_parts') {
+          this.mainPartsProcesses = response.data;
+        }
+      } catch (error) {
+        console.error(`加载${moduleType}工序数据失败:`, error);
+        ElMessage.error(`加载${moduleType}工序数据失败`);
+      } finally {
+        this.loading.processes = false;
+      }
+    },
+
+    // 加载返修记录
+    async loadRepairRecords() {
+      this.loading.repairs = true;
+      try {
+        const response = await repairAPI.getRepairRecordsByMoldId(this.moldId);
+        this.repairRecords = response.data;
+      } catch (error) {
+        console.error('加载返修记录失败:', error);
+        ElMessage.error('加载返修记录失败');
+      } finally {
+        this.loading.repairs = false;
+      }
     },
 
     // 获取状态对应的类型
     getStatusType(status) {
-      if (status === 'notStarted') return 'danger';  // 红色
-      if (status === 'inProgress') return 'warning'; // 黄色
-      if (status === 'completed') return 'success';  // 绿色
+      if (status === 'notStarted') return 'danger';
+      if (status === 'inProgress') return 'warning';
+      if (status === 'completed') return 'success';
       return 'info';
     },
 
@@ -397,9 +415,9 @@ export default {
 
     // 获取返修状态类型
     getRepairStatusType(status) {
-      if (status === 'waiting') return 'danger';    // 红色
-      if (status === 'repairing') return 'warning'; // 黄色
-      if (status === 'completed') return 'success'; // 绿色
+      if (status === 'waiting') return 'danger';
+      if (status === 'repairing') return 'warning';
+      if (status === 'completed') return 'success';
       return 'info';
     },
 
@@ -412,19 +430,65 @@ export default {
     },
 
     // 开始工序
-    startProcess(process) {
-      process.status = 'inProgress';
-      process.startTime = this.formatDateTime(new Date());
-      this.updateCompletionRate();
-      // 这里应该调用API保存数据
+    async startProcess(process) {
+      try {
+        const response = await processAPI.startProcess(process.id);
+
+        // 更新本地数据
+        const updatedProcess = response.data;
+        const moduleType = process.moduleType;
+
+        if (moduleType === 'frame') {
+          const index = this.frameProcesses.findIndex(p => p.id === process.id);
+          if (index !== -1) {
+            this.frameProcesses[index] = updatedProcess;
+          }
+        } else if (moduleType === 'main_parts') {
+          const index = this.mainPartsProcesses.findIndex(p => p.id === process.id);
+          if (index !== -1) {
+            this.mainPartsProcesses[index] = updatedProcess;
+          }
+        }
+
+        // 刷新模具数据
+        this.loadMoldData();
+
+        ElMessage.success('工序已开始');
+      } catch (error) {
+        console.error('开始工序失败:', error);
+        ElMessage.error('开始工序失败');
+      }
     },
 
     // 完成工序
-    completeProcess(process) {
-      process.status = 'completed';
-      process.endTime = this.formatDateTime(new Date());
-      this.updateCompletionRate();
-      // 这里应该调用API保存数据
+    async completeProcess(process) {
+      try {
+        const response = await processAPI.completeProcess(process.id);
+
+        // 更新本地数据
+        const updatedProcess = response.data;
+        const moduleType = process.moduleType;
+
+        if (moduleType === 'frame') {
+          const index = this.frameProcesses.findIndex(p => p.id === process.id);
+          if (index !== -1) {
+            this.frameProcesses[index] = updatedProcess;
+          }
+        } else if (moduleType === 'main_parts') {
+          const index = this.mainPartsProcesses.findIndex(p => p.id === process.id);
+          if (index !== -1) {
+            this.mainPartsProcesses[index] = updatedProcess;
+          }
+        }
+
+        // 刷新模具数据
+        this.loadMoldData();
+
+        ElMessage.success('工序已完成');
+      } catch (error) {
+        console.error('完成工序失败:', error);
+        ElMessage.error('完成工序失败');
+      }
     },
 
     // 查看工序详情
@@ -432,16 +496,6 @@ export default {
       this.$router.push(`/mold/${this.moldId}/process/${process.id}`);
     },
 
-    // 使用辅料
-    useMaterial(material) {
-      if (material.stock >= material.required) {
-        material.stock -= material.required;
-        alert(`已使用${material.name} ${material.required}件，剩余库存: ${material.stock}件`);
-        // 这里应该调用API保存数据
-      }
-    },
-
-    // 显示添加返修记录对话框
     // 显示添加返修记录对话框
     showAddRepairDialog() {
       this.newRepairRecord = {
@@ -455,106 +509,91 @@ export default {
         status: 'waiting'
       };
       this.addRepairVisible = true;
-    }
-    ,
-
-    // 开始返修
-    startRepair(record) {
-      record.status = 'repairing';
-      // 这里应该调用API保存数据
-    },
-
-    // 完成返修
-    completeRepair(record) {
-      record.status = 'completed';
-      // 这里应该调用API保存数据
-    },
-
-    // 更新完成率
-    // 更新完成率
-    // 更新完成率
-    updateCompletionRate() {
-      let totalWeight = 0;
-      let completedWeight = 0;
-
-      // 计算模架部分权重和完成度
-      this.frameProcesses.forEach(process => {
-        totalWeight += process.weight;
-        if (process.status === 'completed') {
-          completedWeight += process.weight;
-        } else if (process.status === 'inProgress') {
-          // 进行中的工序计算50%的权重
-          completedWeight += (process.weight * 0.5);
-        }
-      });
-
-      // 计算三大件部分权重和完成度
-      this.mainPartsProcesses.forEach(process => {
-        totalWeight += process.weight;
-        if (process.status === 'completed') {
-          completedWeight += process.weight;
-        } else if (process.status === 'inProgress') {
-          // 进行中的工序计算50%的权重
-          completedWeight += (process.weight * 0.5);
-        }
-      });
-
-      // 计算总完成率
-      this.completionRate = Math.round((completedWeight / totalWeight) * 100);
-
-      // 更新状态颜色
-      if (this.completionRate === 0) {
-        this.progressStatus = 'exception'; // 红色
-      } else if (this.completionRate === 100) {
-        this.progressStatus = 'success';  // 绿色
-        if (!this.endTime) {
-          this.endTime = this.formatDateTime(new Date());
-        }
-      } else {
-        this.progressStatus = 'warning';  // 黄色
-      }
-    },
-
-
-
-    // 格式化日期时间
-    formatDateTime(date) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const hours = String(date.getHours()).padStart(2, '0');
-      const minutes = String(date.getMinutes()).padStart(2, '0');
-
-      return `${year}-${month}-${day} ${hours}:${minutes}`;
     },
 
     // 添加返修记录
-    addRepairRecord() {
-      // 验证必填字段
+    async addRepairRecord() {
       if (!this.newRepairRecord.partName || !this.newRepairRecord.reason) {
-        this.$message.warning('请填写工件名称和返修原因');
+        ElMessage.warning('请填写工件名称和返修原因');
         return;
       }
 
-      const record = {
-        id: 'repair-' + Date.now(),
-        repairDate: this.formatDateTime(new Date()),
-        ...this.newRepairRecord
-      };
+      try {
+        const response = await repairAPI.createRepairRecord(
+            this.moldId,
+            this.newRepairRecord
+        );
 
-      // 添加到返修记录列表
-      this.repairRecords.push(record);
+        // 更新本地数据
+        this.repairRecords.push(response.data);
 
-      // 关闭对话框
-      this.addRepairVisible = false;
+        // 关闭对话框
+        this.addRepairVisible = false;
 
-      // 提示成功
-      this.$message.success('返修记录添加成功');
+        ElMessage.success('返修记录添加成功');
+      } catch (error) {
+        console.error('添加返修记录失败:', error);
+        ElMessage.error('添加返修记录失败');
+      }
+    },
+
+    // 开始返修
+    async startRepair(repairRecord) {
+      try {
+        const response = await repairAPI.startRepair(repairRecord.id);
+
+        // 更新本地数据
+        const index = this.repairRecords.findIndex(r => r.id === repairRecord.id);
+        if (index !== -1) {
+          this.repairRecords[index] = response.data;
+        }
+
+        ElMessage.success('返修已开始');
+      } catch (error) {
+        console.error('开始返修失败:', error);
+        ElMessage.error('开始返修失败');
+      }
+    },
+
+    // 完成返修
+    async completeRepair(repairRecord) {
+      try {
+        const response = await repairAPI.completeRepair(repairRecord.id);
+
+        // 更新本地数据
+        const index = this.repairRecords.findIndex(r => r.id === repairRecord.id);
+        if (index !== -1) {
+          this.repairRecords[index] = response.data;
+        }
+
+        ElMessage.success('返修已完成');
+      } catch (error) {
+        console.error('完成返修失败:', error);
+        ElMessage.error('完成返修失败');
+      }
+    },
+
+    // 格式化日期时间
+    formatDateTime(date) {
+      if (!date) return '';
+
+      try {
+        const d = new Date(date);
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+
+        return `${year}-${month}-${day} ${hours}:${minutes}`;
+      } catch (error) {
+        return date; // 如果解析失败，返回原始字符串
+      }
     }
-
   }
 }
 </script>
+
 
 <style scoped>
 .mold-detail {

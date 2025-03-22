@@ -97,6 +97,10 @@
 </template>
 
 <script>
+import processAPI from '@/api/process.js';
+import { ElMessage } from 'element-plus';
+import cacheService from '@/services/cache';
+
 export default {
   data() {
     return {
@@ -119,7 +123,10 @@ export default {
       newSubProcess: {
         name: '',
         weight: 1
-      }
+      },
+
+      // 添加loading状态
+      loading: false
     }
   },
   mounted() {
@@ -139,85 +146,30 @@ export default {
     },
 
     // 加载工序数据
-    loadProcessData() {
-      // 模拟API调用加载数据
-      this.moldCode = 'SC25-01';
+    async loadProcessData() {
+      this.loading = true;
+      try {
+        // 使用缓存服务获取数据
+        const processData = await cacheService.getProcessWithCache(this.processId);
 
-      // 根据processId加载不同工序数据
-      if (this.processId === 'design') {
-        this.processName = '设计图纸';
-        this.processWeight = 2;
-        this.status = 'completed';
-        this.startTime = '2023-09-03 10:00';
-        this.endTime = '2023-09-03 17:00';
+        this.processName = processData.name;
+        this.processWeight = processData.weight;
+        this.status = processData.status;
+        this.startTime = processData.startTime;
+        this.endTime = processData.endTime;
+        this.moldCode = processData.mold ? processData.mold.moldCode : '';
 
-        this.subProcesses = [
-          {
-            id: 'design-1',
-            name: '模架设计',
-            weight: 0.8,
-            status: 'completed',
-            startTime: '2023-09-03 10:00',
-            endTime: '2023-09-03 14:00'
-          },
-          {
-            id: 'design-2',
-            name: '三大件设计',
-            weight: 0.7,
-            status: 'completed',
-            startTime: '2023-09-03 14:30',
-            endTime: '2023-09-03 16:00'
-          },
-          {
-            id: 'design-3',
-            name: '辅料设计',
-            weight: 0.5,
-            status: 'completed',
-            startTime: '2023-09-03 16:00',
-            endTime: '2023-09-03 17:00'
-          }
-        ];
-      } else if (this.processId === 'material') {
-        this.processName = '模料';
-        this.processWeight = 7;
-        this.status = 'inProgress';
-        this.startTime = '2023-09-04 09:00';
-        this.endTime = null;
+        // 获取子工序列表
+        this.subProcesses = await cacheService.getSubProcessesWithCache(this.processId);
 
-        this.subProcesses = [
-          {
-            id: 'material-1',
-            name: '材料选型',
-            weight: 1.5,
-            status: 'completed',
-            startTime: '2023-09-04 09:00',
-            endTime: '2023-09-04 11:00'
-          },
-          {
-            id: 'material-2',
-            name: '材料采购',
-            weight: 2,
-            status: 'inProgress',
-            startTime: '2023-09-04 13:00',
-            endTime: null
-          },
-          {
-            id: 'material-3',
-            name: '材料检验',
-            weight: 3.5,
-            status: 'notStarted',
-            startTime: null,
-            endTime: null
-          }
-        ];
-      } else {
-        // 默认空数据
-        this.processName = '未知工序';
-        this.subProcesses = [];
+        // 计算子工序完成率
+        this.updateSubProcessCompletionRate();
+      } catch (error) {
+        console.error('加载工序数据失败:', error);
+        ElMessage.error('加载工序数据失败，请刷新页面重试');
+      } finally {
+        this.loading = false;
       }
-
-      // 计算子工序完成率
-      this.updateSubProcessCompletionRate();
     },
 
     // 获取状态对应的类型
@@ -246,60 +198,113 @@ export default {
     },
 
     // 添加子工序
-    addSubProcess() {
-      const subProcess = {
-        id: `sub-${Date.now()}`,
-        name: this.newSubProcess.name,
-        weight: this.newSubProcess.weight,
-        status: 'notStarted',
-        startTime: null,
-        endTime: null
-      };
+    async addSubProcess() {
+      if (!this.newSubProcess.name) {
+        ElMessage.warning('请输入子工序名称');
+        return;
+      }
 
-      this.subProcesses.push(subProcess);
-      this.addSubProcessVisible = false;
-      this.updateSubProcessCompletionRate();
+      try {
+        const subProcessData = {
+          name: this.newSubProcess.name,
+          weight: this.newSubProcess.weight,
+          status: 'notStarted'
+        };
+
+        const response = await processAPI.createSubProcess(this.processId, subProcessData);
+        this.subProcesses.push(response.data);
+        this.addSubProcessVisible = false;
+        this.updateSubProcessCompletionRate();
+        ElMessage.success('子工序添加成功');
+      } catch (error) {
+        console.error('添加子工序失败:', error);
+        ElMessage.error('添加子工序失败');
+      }
     },
 
     // 开始子工序
-    startSubProcess(subProcess) {
-      subProcess.status = 'inProgress';
-      subProcess.startTime = this.formatDateTime(new Date());
+    async startSubProcess(subProcess) {
+      try {
+        const response = await processAPI.startSubProcess(subProcess.id);
+        const updatedSubProcess = response.data;
 
-      // 更新主工序状态
-      if (this.status === 'notStarted') {
-        this.status = 'inProgress';
-        this.startTime = this.formatDateTime(new Date());
+        // 更新本地数据
+        const index = this.subProcesses.findIndex(p => p.id === subProcess.id);
+        if (index !== -1) {
+          this.subProcesses[index] = updatedSubProcess;
+        }
+
+        // 如果工序状态是未开始，也需要更新工序状态
+        if (this.status === 'notStarted') {
+          await this.refreshProcessData();
+        }
+
+        this.updateSubProcessCompletionRate();
+        ElMessage.success('子工序已开始');
+      } catch (error) {
+        console.error('开始子工序失败:', error);
+        ElMessage.error('开始子工序失败');
       }
-
-      this.updateSubProcessCompletionRate();
     },
 
     // 完成子工序
-    completeSubProcess(subProcess) {
-      subProcess.status = 'completed';
-      subProcess.endTime = this.formatDateTime(new Date());
-      this.updateSubProcessCompletionRate();
+    async completeSubProcess(subProcess) {
+      try {
+        const response = await processAPI.completeSubProcess(subProcess.id);
+        const updatedSubProcess = response.data;
 
-      // 检查是否所有子工序都已完成
-      const allCompleted = this.subProcesses.every(p => p.status === 'completed');
-      if (allCompleted) {
-        this.status = 'completed';
-        this.endTime = this.formatDateTime(new Date());
+        // 更新本地数据
+        const index = this.subProcesses.findIndex(p => p.id === subProcess.id);
+        if (index !== -1) {
+          this.subProcesses[index] = updatedSubProcess;
+        }
+
+        // 刷新工序状态以检查是否所有子工序都已完成
+        await this.refreshProcessData();
+
+        this.updateSubProcessCompletionRate();
+        ElMessage.success('子工序已完成');
+      } catch (error) {
+        console.error('完成子工序失败:', error);
+        ElMessage.error('完成子工序失败');
       }
     },
 
     // 删除子工序
-    deleteSubProcess(subProcess) {
+    async deleteSubProcess(subProcess) {
       if (subProcess.status !== 'notStarted') {
-        this.$message.warning('只能删除未开始的子工序');
+        ElMessage.warning('只能删除未开始的子工序');
         return;
       }
 
-      const index = this.subProcesses.findIndex(p => p.id === subProcess.id);
-      if (index !== -1) {
-        this.subProcesses.splice(index, 1);
+      try {
+        await processAPI.deleteSubProcess(subProcess.id);
+
+        // 更新本地数据
+        const index = this.subProcesses.findIndex(p => p.id === subProcess.id);
+        if (index !== -1) {
+          this.subProcesses.splice(index, 1);
+        }
+
         this.updateSubProcessCompletionRate();
+        ElMessage.success('子工序已删除');
+      } catch (error) {
+        console.error('删除子工序失败:', error);
+        ElMessage.error('删除子工序失败');
+      }
+    },
+
+    // 刷新工序数据
+    async refreshProcessData() {
+      try {
+        const response = await processAPI.getProcessById(this.processId);
+        const processData = response.data;
+
+        this.status = processData.status;
+        this.startTime = processData.startTime;
+        this.endTime = processData.endTime;
+      } catch (error) {
+        console.error('刷新工序数据失败:', error);
       }
     },
 
@@ -348,6 +353,7 @@ export default {
   }
 }
 </script>
+
 
 <style scoped>
 .process-detail {

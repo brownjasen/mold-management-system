@@ -6,7 +6,6 @@
     <!-- 添加模具按钮 -->
     <div class="action-bar">
       <el-button type="primary" @click="showAddDialog">添加模具</el-button>
-      <el-button type="info" @click="goToMaterialStock">辅料库存管理</el-button>
     </div>
 
 
@@ -73,16 +72,20 @@
 
 
 <script>
+import moldAPI from '@/api/mold.js';
+import { ElMessage } from 'element-plus';
+
 export default {
   data() {
     return {
-      moldList: [], // 模具列表
-      addDialogVisible: false, // 添加对话框是否可见
-      newMold: { // 新模具数据
+      moldList: [],
+      addDialogVisible: false,
+      newMold: {
         moldCode: '',
         orderTime: '',
         priority: 1
-      }
+      },
+      loading: false
     }
   },
   mounted() {
@@ -90,44 +93,25 @@ export default {
     this.getMoldList();
   },
   methods: {
-    // 获取模具列表（模拟数据）
-    getMoldList() {
-      // 这里应该是从API获取数据，现在用模拟数据
-      this.moldList = [
-        {
-          id: '1',
-          moldCode: 'SC25-01',
-          orderTime: '2023-09-01 10:00',
-          startTime: null,
-          endTime: null,
-          completionRate: 0,
-          status: 'notStarted',
-          priority: 1
-        },
-        {
-          id: '2',
-          moldCode: 'SC25-02',
-          orderTime: '2023-09-02 09:30',
-          startTime: '2023-09-03 08:00',
-          endTime: null,
-          completionRate: 15,
-          status: 'inProgress',
-          priority: 2
-        }
-      ];
+    // 获取模具列表
+    async getMoldList() {
+      this.loading = true;
+      try {
+        const response = await moldAPI.getAllMolds();
+        this.moldList = response.data;
+      } catch (error) {
+        console.error('获取模具列表失败:', error);
+        ElMessage.error('获取模具列表失败，请稍后重试');
+      } finally {
+        this.loading = false;
+      }
     },
-
-    // 跳转到辅料库存管理
-    goToMaterialStock() {
-      this.$router.push('/materials');
-    },
-
 
     // 获取进度条状态
     getProgressStatus(status) {
-      if (status === 'notStarted') return 'exception'; // 红色
-      if (status === 'inProgress') return 'warning';   // 黄色
-      if (status === 'completed') return 'success';    // 绿色
+      if (status === 'notStarted') return 'exception';
+      if (status === 'inProgress') return 'warning';
+      if (status === 'completed') return 'success';
       return '';
     },
 
@@ -137,50 +121,71 @@ export default {
     },
 
     // 添加新模具
-    addMold() {
-      // 创建新模具对象
-      const newMoldItem = {
-        id: Date.now().toString(), // 使用时间戳作为临时ID
-        moldCode: this.newMold.moldCode,
-        orderTime: this.formatDate(this.newMold.orderTime),
-        startTime: null,
-        endTime: null,
-        completionRate: 0,
-        status: 'notStarted',
-        priority: this.moldList.length + 1
-      };
+    async addMold() {
+      if (!this.newMold.moldCode) {
+        ElMessage.warning('请输入模具编号');
+        return;
+      }
 
-      // 添加到模具列表
-      this.moldList.push(newMoldItem);
+      try {
+        const moldData = {
+          moldCode: this.newMold.moldCode,
+          orderTime: this.formatDate(this.newMold.orderTime),
+          priority: this.moldList.length + 1
+        };
 
-      // 关闭对话框并重置表单
-      this.addDialogVisible = false;
-      this.newMold = {
-        moldCode: '',
-        orderTime: '',
-        priority: 1
-      };
+        const response = await moldAPI.createMold(moldData);
+        this.moldList.push(response.data);
+
+        this.addDialogVisible = false;
+        this.newMold = {
+          moldCode: '',
+          orderTime: '',
+          priority: 1
+        };
+
+        ElMessage.success('模具添加成功');
+      } catch (error) {
+        console.error('添加模具失败:', error);
+        ElMessage.error('添加模具失败');
+      }
     },
 
     // 开始设计
-    startDesign(mold) {
-      mold.startTime = this.formatDate(new Date());
-      mold.status = 'inProgress';
-      // 这里应该调用API更新数据
-      alert(`已开始设计模具: ${mold.moldCode}`);
+    async startDesign(mold) {
+      try {
+        const response = await moldAPI.startDesign(mold.id);
+
+        // 更新本地模具数据
+        const index = this.moldList.findIndex(m => m.id === mold.id);
+        if (index !== -1) {
+          this.moldList[index] = response.data;
+        }
+
+        ElMessage.success(`已开始设计模具: ${mold.moldCode}`);
+      } catch (error) {
+        console.error('开始设计失败:', error);
+        ElMessage.error('开始设计失败');
+      }
     },
 
     // 更新优先级
-    updatePriority(mold) {
-      // 这里应该调用API更新优先级
-      // 简单实现：重新排序列表
-      this.moldList.sort((a, b) => a.priority - b.priority);
+    async updatePriority(mold) {
+      try {
+        await moldAPI.updateMold(mold.id, mold);
+
+        // 重新排序
+        this.moldList.sort((a, b) => a.priority - b.priority);
+        ElMessage.success('生产顺序已更新');
+      } catch (error) {
+        console.error('更新优先级失败:', error);
+        ElMessage.error('更新优先级失败');
+      }
     },
 
     // 查看详情
     viewDetail(id) {
       this.$router.push(`/mold/${id}`);
-      // 这里应该跳转到详情页面
     },
 
     // 格式化日期
@@ -195,11 +200,12 @@ export default {
       const hours = String(d.getHours()).padStart(2, '0');
       const minutes = String(d.getMinutes()).padStart(2, '0');
 
-      return `${year}-${month}-${day} ${hours}:${minutes}`;
+      return `${year}-${month}-${day}T${hours}:${minutes}`;
     }
   }
 }
 </script>
+
 
 <style scoped>
 .mold-list-container {
